@@ -1,15 +1,33 @@
+
 <!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>PNG/JPG 转 PDF（纯前端）</title>
+  <title>图片转 PDF（纯前端）</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     :root {
       --bg: #f6f7fb;
       --card: #fff;
       --primary: #4f6bed;
       --muted: #6b7280;
+      --border: #e5e7eb;
+      --shadow: 0 6px 20px rgba(0,0,0,.05);
+    }
+    html[data-theme="neutral"] {
+      --bg: #f5f5f0;
+      --card: #fff;
+      --muted: #555;
+      --border: #ddd;
+      --shadow: 0 6px 20px rgba(0,0,0,.08);
+    }
+    html[data-theme="high-contrast"] {
+      --bg: #0a0a0a;
+      --card: #111;
+      --muted: #ddd;
+      --border: #333;
+      --shadow: 0 6px 20px rgba(0,0,0,.6);
     }
     html, body {
       margin: 0;
@@ -19,233 +37,313 @@
       min-height: 100vh;
       color: #111;
     }
-    .wrap {
-      max-width: 860px;
-      margin: 40px auto;
-      padding: 20px;
-    }
+    .wrap { max-width: 860px; margin: 40px auto; padding: 20px; }
     .panel {
       background: var(--card);
       border-radius: 12px;
-      padding: 20px;
-      box-shadow: 0 6px 20px rgba(0,0,0,.05);
-      border: 1px solid #e5e7eb;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
     }
-    h1 {
-      margin: 0 0 12px;
-      font-size: 20px;
-      color: #111827;
+    h1 { margin: 0 0 16px; font-size: 22px; color: #111827; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+      flex-wrap: wrap;
     }
+    .toolbar-label { font-size: 12px; color: var(--muted); margin-right: 4px; }
+    .theme-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all .2s;
+    }
+    .theme-btn:hover { border-color: var(--primary); }
+    .theme-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
     #dropzone {
       border: 2px dashed #cbd5e1;
       border-radius: 12px;
-      padding: 28px;
+      padding: 32px;
       text-align: center;
-      color: #4b5563;
+      color: var(--muted);
       cursor: pointer;
-      transition: border-color .2s;
+      transition: all .2s;
       user-select: none;
+      background: rgba(79, 107, 237, 0.02);
     }
-    #dropzone.dragover {
+    #dropzone:hover, #dropzone.dragover {
       border-color: var(--primary);
-      color: #111;
-      background: #f6faff;
+      color: var(--primary);
+      background: rgba(79, 107, 237, 0.05);
     }
+    #dropzone.dragover { transform: scale(1.01); }
+
     #thumbs {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
     }
     .thumb {
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      padding: 6px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
       background: #fff;
-      width: 120px;
-      user-select: none;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      transition: all .2s;
+      cursor: grab;
     }
+    .thumb:hover {
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(79, 107, 237, 0.15);
+      transform: translateY(-2px);
+    }
+    .thumb.dragging { opacity: 0.5; }
+    .thumb.drag-over { border-color: var(--primary); background: rgba(79, 107, 237, 0.08); }
+
+    .thumb-header { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .drag-handle { cursor: grab; padding: 2px 4px; color: #bbb; font-size: 14px; user-select: none; }
+    .thumb:hover .drag-handle { color: #888; }
+    .selectBox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary); }
+
     .thumb img {
-      width: 110px;
-      height: 70px;
+      width: 100%;
+      height: 110px;
       object-fit: cover;
       border-radius: 6px;
-    }
-    .thumb-controls {
-      display: flex;
-      gap: 6px;
-    }
-    .thumb-controls button {
-      padding: 4px 6px;
-      font-size: 12px;
-      border-radius: 6px;
-      border: 1px solid #ddd;
-      background: #f8f8f8;
       cursor: pointer;
+      background: #f3f4f6;
+      transition: transform .2s;
     }
-    .row {
+    .thumb img:hover { transform: scale(1.02); }
+
+    .thumb-meta { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .thumb-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+    .thumb-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 4px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #f3f4f6;
+    }
+    .btn-icon {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #f9fafb;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .btn-icon:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-icon.delete:hover { background: #ef4444; border-color: #ef4444; }
+
+    .action-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      margin-top: 12px;
+      margin-top: 16px;
       flex-wrap: wrap;
     }
+    .action-left, .action-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .select-wrapper { display: flex; align-items: center; gap: 6px; }
+    .select-wrapper label { font-size: 13px; color: var(--muted); }
+    select {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      cursor: pointer;
+      background: #fff;
+    }
+
     button {
       background: var(--primary);
       color: white;
       border: none;
       border-radius: 8px;
-      padding: 12px 16px;
+      padding: 10px 18px;
       font-size: 14px;
       cursor: pointer;
-    }
-    button:disabled {
-      opacity: .6;
-      cursor: not-allowed;
-    }
-    .log {
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    input[type="file"] {
-      display: inline-block;
-      margin-top: 8px;
-    }
-  </style>
-  <style>
-    /* Rich UI grid for thumbnails and actions */
-    #thumbs {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-      gap: 12px;
-      margin-top: 12px;
-    }
-    .thumb {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 8px;
-      display: flex;
-      flex-direction: column;
-      align-items: stretch;
-      min-height: 190px;
-    }
-    .thumb-header {
-      display: flex;
+      transition: all .2s;
+      display: inline-flex;
       align-items: center;
       gap: 6px;
+      font-weight: 500;
     }
-    .drag-handle {
-      cursor: grab;
-      padding: 4px 6px;
-      color: #888;
-      user-select: none;
+    button:hover:not(:disabled) { background: #3d5bd9; transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: #f3f4f6; color: #374151; }
+    .btn-secondary:hover:not(:disabled) { background: #e5e7eb; }
+    .btn-danger { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .btn-danger:hover:not(:disabled) { background: #fee2e2; }
+
+    input[type="file"] { display: none; }
+    .file-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      background: #f3f4f6;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all .2s;
     }
-    .thumb img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; cursor: pointer; }
-    .thumb-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #555; margin-top: 6px; }
-    .name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-    .size { font-size: 11px; color: #6b7280; }
-    .thumb-status { font-size: 11px; padding: 2px 6px; border-radius: 999px; }
-    .thumb-actions { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 8px; }
-    .btn-small { padding: 4px 6px; border-radius: 6px; border: 1px solid #ddd; background: #f8f8f8; font-size: 12px; cursor: pointer; }
-    .selectBox { margin-right: 6px; }
-  </style>
-  <style>
-    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.5); z-index: 9999; }
+    .file-label:hover { background: #e5e7eb; }
+
+    .progress-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 12px;
+      display: none;
+    }
+    .progress-bar.show { display: block; }
+    .progress-fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.3s ease; }
+
+    .log {
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: #f9fafb;
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .log.success { background: #f0fdf4; color: #166534; }
+    .log.error { background: #fef2f2; color: #dc2626; }
+
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.6); z-index: 9999; backdrop-filter: blur(4px); }
     .modal.show { display: flex; }
-    .modal-content { background: #fff; padding: 8px; border-radius: 8px; max-width: 90%; max-height: 90%; box-shadow: 0 5px 15px rgba(0,0,0,.3); position: relative; }
-    .modal-close { position: absolute; top: 6px; right: 8px; border: none; background: transparent; font-size: 20px; cursor: pointer; }
-    .modal-content img { display: block; max-width: 100%; max-height: 80vh; }
+    .modal-content { background: #fff; border-radius: 12px; overflow: hidden; max-width: 90vw; max-height: 90vh; box-shadow: 0 20px 40px rgba(0,0,0,.3); position: relative; }
+    .modal-close { position: absolute; top: 12px; right: 12px; border: none; background: rgba(0,0,0,0.5); color: #fff; width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
+    .modal-close:hover { background: rgba(0,0,0,0.7); }
+    .modal-toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; background: #f9fafb; border-bottom: 1px solid var(--border); }
+    .modal-toolbar span { font-size: 13px; color: var(--muted); min-width: 50px; text-align: center; }
+    .image-wrap { overflow: auto; max-height: calc(90vh - 60px); display: flex; justify-content: center; align-items: center; background: #1a1a1a; }
+    .image-wrap img { max-width: 100%; max-height: 80vh; object-fit: contain; }
+
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+    .empty-state svg { width: 48px; height: 48px; opacity: 0.4; margin-bottom: 12px; }
+
+    @media (max-width: 640px) {
+      .wrap { margin: 20px auto; padding: 12px; }
+      .panel { padding: 16px; }
+      #thumbs { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
-      <h1>PNG/JPG 转 PDF（纯前端）</h1>
+      <h1>📄 图片转 PDF（纯前端）</h1>
+
+      <div class="toolbar">
+        <span class="toolbar-label">主题</span>
+        <button id="themeLight" class="theme-btn" data-theme="light">亮色</button>
+        <button id="themeNeutral" class="theme-btn" data-theme="neutral">中性</button>
+        <button id="themeHigh" class="theme-btn" data-theme="high-contrast">高对比</button>
+      </div>
+
       <div id="dropzone">
-        将图片拖拽到此处，或点击选择图片
+        <div style="font-size: 32px; margin-bottom: 8px;">📁</div>
+        <div>将图片拖拽到此处，或点击选择图片</div>
+        <div style="font-size: 12px; color: #9ca3af; margin-top: 6px;">支持 PNG、JPG、BMP、SVG</div>
       </div>
-      <div class="row" style="margin-top:12px;">
-        <input id="fileInput" type="file" accept="image/png,image/jpeg,image/bmp,image/tiff,image/svg+xml" multiple />
-        <button id="toPdf" disabled>导出 PDF</button>
-      </div>
-      <div class="row" style="margin-top:6px;">
-        <label>排序
-          <select id="sortMode" aria-label="Sort mode" title="排序模式">
-            <option value="manual" selected>手动</option>
-            <option value="name">按名称排序</option>
-          </select>
-        </label>
-      </div>
-      <div id="thumbs"></div>
-      <div class="row" style="gap:12px; align-items:center; margin-top:8px;">
-        <label>输出模式
-          <select id="modeSelect">
-            <option value="multi" selected>多页 PDF（每张为一页）</option>
-            <option value="single">每张图片生成单独 PDF</option>
-          </select>
-        </label>
-        <button id="clearBtn" disabled style="margin-left:8px;">清空</button>
-        <button id="deleteSelectedBtn" class="btn-small" disabled style="margin-left:8px;">删除选中</button>
-      </div>
-      <!-- Preview modal -->
-      <div id="previewModal" class="modal" aria-hidden="true">
-        <div class="modal-content">
-          <button id="modalClose" class="modal-close" aria-label="Close">&times;</button>
-          <div class="preview-toolbar" style="display:flex; gap:6px; align-items:center; justify-content: flex-end; padding:4px 0;">
-            <button id="zoomOut" class="btn-small" aria-label="Zoom out">-</button>
-            <span id="zoomLabel">100%</span>
-            <button id="zoomIn" class="btn-small" aria-label="Zoom in">+</button>
+
+      <input id="fileInput" type="file" accept="image/png,image/jpeg,image/bmp,image/svg+xml" multiple />
+
+      <div class="action-row" style="margin-top: 16px;">
+        <div class="action-left">
+          <label class="file-label" for="fileInput">📂 选择图片</label>
+          <div class="select-wrapper">
+            <label for="sortMode">排序</label>
+            <select id="sortMode">
+              <option value="manual">手动</option>
+              <option value="name">按名称</option>
+              <option value="size">按大小</option>
+            </select>
           </div>
-          <div class="image-wrap" style="overflow:auto; max-height:70vh; display:flex; justify-content:center; align-items:center;">
-            <img id="previewImg" src="" alt="Preview" style="max-width:100%; max-height:60vh; transform-origin: center center;" />
+        </div>
+        <div class="action-right">
+          <button id="toPdf" disabled>📄 导出 PDF</button>
+          <button id="selectAllBtn" class="btn-secondary" disabled>☑️ 全选</button>
+          <button id="deleteSelectedBtn" class="btn-danger" disabled>🗑️ 删除</button>
+          <button id="clearBtn" class="btn-secondary" disabled>清空</button>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <div class="action-left">
+          <div class="select-wrapper">
+            <label for="modeSelect">输出模式</label>
+            <select id="modeSelect">
+              <option value="multi">多页 PDF（所有图片合并）</option>
+              <option value="single">单页 PDF（每张图片单独）</option>
+            </select>
           </div>
         </div>
       </div>
-      <div class="log" id="log" aria-live="polite"></div>
+
+      <div id="thumbs"></div>
+      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
+
+      <div class="log" id="log">💡 提示：拖拽缩略图可调整顺序</div>
     </div>
   </div>
 
-  <!-- 纯前端：通过 CDN 加载 jsPDF -->
+  <div id="previewModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <button id="modalClose" class="modal-close" aria-label="关闭">×</button>
+      <div class="modal-toolbar">
+        <button id="zoomOut" class="btn-icon">−</button>
+        <span id="zoomLabel">100%</span>
+        <button id="zoomIn" class="btn-icon">+</button>
+      </div>
+      <div class="image-wrap">
+        <img id="previewImg" src="" alt="预览" />
+      </div>
+    </div>
+  </div>
+
   <script>
-  // 确保 jsPDF 加载完成
-  function ensurePdfLib() {
-      if (window.jspdf && window.jspdf.jsPDF) {
-        return Promise.resolve(window.jspdf);
-      }
-      return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-        s.onload = () => resolve(window.jspdf);
-        s.onerror = () => reject(new Error('Failed to load jsPDF.'));
-        document.head.appendChild(s);
-      });
-    }
+  // ========== 工具函数 ==========
+  function formatSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
 
-  // 将 File -> dataURL
   function readAsDataURL(file) {
-      return new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve({ name: file.name, dataUrl: r.result, type: file.type, size: file.size });
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-    }
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, dataUrl: reader.result, type: file.type, size: file.size, lastModified: file.lastModified });
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
 
-    // 读取多个文件，返回数组
-    async function readFiles(files) {
-      const arr = Array.from(files).filter(f => f.type.startsWith('image/'));
-      const results = await Promise.all(arr.map(readAsDataURL));
-      return results;
-    }
+  async function readFiles(files) {
+    const arr = Array.from(files).filter(f => f.type.startsWith('image/'));
+    return Promise.all(arr.map(readAsDataURL));
+  }
 
-  // 读取图片并返回 Image 对象
   function loadImage(dataUrl) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -255,264 +353,361 @@
     });
   }
 
-  // DOM 绑定
-    (async () => {
-      const dropzone = document.getElementById('dropzone');
-      const fileInput = document.getElementById('fileInput');
-      const toPdfBtn = document.getElementById('toPdf');
-      const thumbs = document.getElementById('thumbs');
-      const log = document.getElementById('log');
+  async function svgToPng(svgDataUrl) {
+    if (!svgDataUrl?.startsWith('data:image/svg+xml')) return svgDataUrl;
+    const img = await loadImage(svgDataUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
 
-      let imagesList = []; // { name, dataUrl, type }
+  function setLog(msg, type = '') {
+    const el = document.getElementById('log');
+    el.textContent = msg;
+    el.className = 'log ' + type;
+  }
 
-      // SVG -> PNG conversion helper
-      async function convertSvgToPng(svgDataUrl) {
-        // If not SVG, return as is
-        if (!svgDataUrl || !svgDataUrl.startsWith('data:image/svg+xml')) return svgDataUrl;
-        const img = await new Promise((resolve, reject) => {
-          const i = new Image();
-          i.onload = () => resolve(i);
-          i.onerror = reject;
-          i.src = svgDataUrl;
+  // ========== 主题 ==========
+  (function() {
+    function applyTheme(theme) {
+      const t = ['light', 'neutral', 'high-contrast'].includes(theme) ? theme : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+      try { localStorage.setItem('theme', t); } catch(e) {}
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === t);
+      });
+    }
+    try { applyTheme(localStorage.getItem('theme') || 'light'); } catch(e) { applyTheme('light'); }
+    document.getElementById('themeLight')?.addEventListener('click', () => applyTheme('light'));
+    document.getElementById('themeNeutral')?.addEventListener('click', () => applyTheme('neutral'));
+    document.getElementById('themeHigh')?.addEventListener('click', () => applyTheme('high-contrast'));
+  })();
+
+  // ========== 主应用 ==========
+  (async () => {
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const thumbs = document.getElementById('thumbs');
+    const toPdfBtn = document.getElementById('toPdf');
+    const sortMode = document.getElementById('sortMode');
+    const modeSelect = document.getElementById('modeSelect');
+    const clearBtn = document.getElementById('clearBtn');
+    const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const progressBar = document.getElementById('progressBar');
+    const progressFill = document.getElementById('progressFill');
+    const previewModal = document.getElementById('previewModal');
+    const previewImg = document.getElementById('previewImg');
+    const zoomLabel = document.getElementById('zoomLabel');
+    const modalClose = document.getElementById('modalClose');
+
+    let imagesList = [];
+    let draggedIndex = null;
+    let currentZoom = 1;
+
+    // ========== 渲染缩略图 ==========
+    function updateThumbs() {
+      thumbs.innerHTML = '';
+
+      if (imagesList.length === 0) {
+        thumbs.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 21"/>
+            </svg>
+            <p>暂无图片，请添加图片开始转换</p>
+          </div>
+        `;
+        toPdfBtn.disabled = true;
+        clearBtn.disabled = true;
+        deleteSelectedBtn.disabled = true;
+        selectAllBtn.disabled = true;
+        return;
+      }
+
+      imagesList.forEach((it, idx) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'thumb';
+        wrap.draggable = true;
+        wrap.dataset.index = idx;
+
+        wrap.innerHTML = `
+          <div class="thumb-header">
+            <span class="drag-handle">⋮⋮</span>
+            <input type="checkbox" class="selectBox" ${it.selected ? 'checked' : ''}>
+          </div>
+          <img src="${it.dataUrl}" alt="${it.name}">
+          <div class="thumb-meta">
+            <span class="thumb-name" title="${it.name}">${it.name}</span>
+            <span>${formatSize(it.size)}</span>
+          </div>
+          <div class="thumb-actions">
+            <button class="btn-icon move-up" ${idx === 0 ? 'disabled' : ''}>↑</button>
+            <button class="btn-icon move-down" ${idx === imagesList.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="btn-icon preview-btn">👁</button>
+            <button class="btn-icon delete-btn">🗑</button>
+          </div>
+        `;
+
+        // 拖拽事件
+        wrap.addEventListener('dragstart', e => {
+          draggedIndex = idx;
+          e.dataTransfer.setData('text/plain', idx);
+          wrap.classList.add('dragging');
         });
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        return canvas.toDataURL('image/png');
-      }
-
-      // Sorting control
-      const sortMode = document.getElementById('sortMode');
-      sortMode.addEventListener('change', () => {
-        if (sortMode.value === 'name') {
-          imagesList = imagesList.slice().sort((a,b) => (a.name||'').localeCompare(b.name||''));
-          updateThumbs();
-          addLog('按名称排序完成');
-        } else {
-          // manual: keep current order (no-op)
-          addLog('排序已设为手动 (保持当前顺序)');
-        }
-      });
-
-      function showPreview(dataUrl) {
-        currentZoom = 1;
-        zoomLabel.textContent = '100%';
-        const modal = document.getElementById('previewModal');
-        const img = document.getElementById('previewImg');
-        img.src = dataUrl;
-        modal.classList.add('show');
-        modal.style.display = 'flex';
-        modal.setAttribute('aria-hidden', 'false');
-        img.style.transform = `scale(${currentZoom})`;
-      }
-      function hidePreview() {
-        const modal = document.getElementById('previewModal');
-        modal.classList.remove('show');
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-      }
-
-      function updateThumbs() {
-        thumbs.innerHTML = '';
-        imagesList.forEach((it, idx) => {
-          const wrap = document.createElement('div');
-          wrap.className = 'thumb';
-          wrap.draggable = true;
-          wrap.dataset.index = idx;
-          wrap.addEventListener('dragstart', onDragStart);
-          wrap.addEventListener('dragover', onDragOver);
-          wrap.addEventListener('drop', onDrop);
-
-          // header: drag handle + select checkbox
-          const header = document.createElement('div'); header.className = 'thumb-header';
-          const dragHandle = document.createElement('span'); dragHandle.className = 'drag-handle'; dragHandle.textContent = '⋮⋮';
-          const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'selectBox'; cb.checked = !!it.selected; cb.addEventListener('change', () => { it.selected = cb.checked; });
-          header.appendChild(dragHandle); header.appendChild(cb);
-          wrap.appendChild(header);
-
-          // image
-          const img = document.createElement('img'); img.src = it.dataUrl; img.alt = it.name; img.style.cursor = 'pointer'; img.addEventListener('click', () => showPreview(it.dataUrl));
-          wrap.appendChild(img);
-
-          // meta: name and size
-          const meta = document.createElement('div'); meta.className = 'thumb-meta';
-          const nameEl = document.createElement('span'); nameEl.className = 'name'; nameEl.textContent = it.name;
-          const sizeEl = document.createElement('span'); sizeEl.className = 'size'; sizeEl.textContent = it.size ? `${(it.size/1024).toFixed(1)} KB` : '';
-          meta.appendChild(nameEl); meta.appendChild(sizeEl);
-          wrap.appendChild(meta);
-
-          // actions
-          const actions = document.createElement('div'); actions.className = 'thumb-actions';
-          const upBtn = document.createElement('button'); upBtn.className='btn-small'; upBtn.textContent = '↑'; upBtn.title='Move up'; upBtn.addEventListener('click', () => { if (idx>0) { [imagesList[idx-1], imagesList[idx]] = [imagesList[idx], imagesList[idx-1]]; updateThumbs(); } });
-          const downBtn = document.createElement('button'); downBtn.className='btn-small'; downBtn.textContent = '↓'; downBtn.title='Move down'; downBtn.addEventListener('click', () => { if (idx < imagesList.length-1) { [imagesList[idx+1], imagesList[idx]] = [imagesList[idx], imagesList[idx+1]]; updateThumbs(); } });
-          const delBtn = document.createElement('button'); delBtn.className='btn-small'; delBtn.textContent = '删除'; delBtn.title='删除该图片'; delBtn.addEventListener('click', () => { imagesList.splice(idx,1); updateThumbs(); });
-          const prefBtn = document.createElement('button'); prefBtn.className='btn-small'; prefBtn.textContent = '预览'; prefBtn.title='预览图片'; prefBtn.addEventListener('click', () => showPreview(it.dataUrl));
-          actions.appendChild(upBtn); actions.appendChild(downBtn); actions.appendChild(delBtn); actions.appendChild(prefBtn);
-          wrap.appendChild(actions);
-          thumbs.appendChild(wrap);
+        wrap.addEventListener('dragover', e => {
+          e.preventDefault();
+          wrap.classList.add('drag-over');
         });
-        toPdfBtn.disabled = imagesList.length === 0;
-        deleteSelectedBtn.disabled = !imagesList.some(it => it.selected);
-      }
+        wrap.addEventListener('dragleave', () => wrap.classList.remove('drag-over'));
+        wrap.addEventListener('drop', e => {
+          e.preventDefault();
+          wrap.classList.remove('drag-over');
+          const targetIdx = idx;
+          if (draggedIndex !== null && draggedIndex !== targetIdx) {
+            const item = imagesList.splice(draggedIndex, 1)[0];
+            imagesList.splice(targetIdx, 0, item);
+            updateThumbs();
+          }
+          draggedIndex = null;
+        });
+        wrap.addEventListener('dragend', () => {
+          wrap.classList.remove('dragging');
+          document.querySelectorAll('.thumb').forEach(t => t.classList.remove('drag-over'));
+        });
 
-      function onDragStart(e) {
-        const idx = Number(e.currentTarget.dataset.index);
-        e.dataTransfer.setData('text/plain', idx);
-        e.dataTransfer.effectAllowed = 'move';
-        e.currentTarget.style.opacity = '0.5';
-      }
-      function onDragOver(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      }
-      function onDrop(e) {
-        e.preventDefault();
-        const targetIdx = Number(e.currentTarget.dataset.index);
-        const sourceIdx = Number(e.dataTransfer.getData('text/plain'));
-        if (sourceIdx === undefined || targetIdx === undefined || sourceIdx === targetIdx) return;
-        const item = imagesList.splice(sourceIdx, 1)[0];
-        imagesList.splice(targetIdx, 0, item);
+        // 复选框
+        wrap.querySelector('.selectBox').addEventListener('change', e => {
+          it.selected = e.target.checked;
+          updateButtons();
+        });
+
+        // 移动按钮
+        wrap.querySelector('.move-up').addEventListener('click', () => {
+          if (idx > 0) {
+            [imagesList[idx - 1], imagesList[idx]] = [imagesList[idx], imagesList[idx - 1]];
+            updateThumbs();
+          }
+        });
+        wrap.querySelector('.move-down').addEventListener('click', () => {
+          if (idx < imagesList.length - 1) {
+            [imagesList[idx + 1], imagesList[idx]] = [imagesList[idx], imagesList[idx + 1]];
+            updateThumbs();
+          }
+        });
+
+        // 预览
+        wrap.querySelector('.preview-btn').addEventListener('click', () => showPreview(it.dataUrl));
+        wrap.querySelector('img').addEventListener('click', () => showPreview(it.dataUrl));
+
+        // 删除
+        wrap.querySelector('.delete-btn').addEventListener('click', () => {
+          imagesList.splice(idx, 1);
+          updateThumbs();
+        });
+
+        thumbs.appendChild(wrap);
+      });
+
+      updateButtons();
+    }
+
+    function updateButtons() {
+      const hasImages = imagesList.length > 0;
+      const hasSelected = imagesList.some(it => it.selected);
+      const allSelected = hasImages && hasSelected && imagesList.every(it => it.selected);
+
+      toPdfBtn.disabled = !hasImages;
+      clearBtn.disabled = !hasImages;
+      deleteSelectedBtn.disabled = !hasSelected;
+      selectAllBtn.disabled = !hasImages;
+      selectAllBtn.textContent = allSelected ? '☐ 取消全选' : '☑ 全选';
+    }
+
+    function showPreview(dataUrl) {
+      currentZoom = 1;
+      previewImg.style.transform = `scale(${currentZoom})`;
+      zoomLabel.textContent = '100%';
+      previewImg.src = dataUrl;
+      previewModal.classList.add('show');
+      previewModal.style.display = 'flex';
+    }
+
+    function hidePreview() {
+      previewModal.classList.remove('show');
+      previewModal.style.display = 'none';
+    }
+
+    // ========== 事件绑定 ==========
+    dropzone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', async e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer?.files?.length) {
+        const list = await readFiles(e.dataTransfer.files);
+        imagesList.push(...list);
         updateThumbs();
+        setLog(`已添加 ${imagesList.length} 张图片`);
       }
+    });
+    dropzone.addEventListener('click', () => fileInput.click());
 
-      function addLog(msg) {
-        log.textContent = msg;
-      }
-
-      // 拖拽处理
-      dropzone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropzone.classList.add('dragover');
-      });
-      dropzone.addEventListener('dragleave', () => {
-        dropzone.classList.remove('dragover');
-      });
-      dropzone.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        dropzone.classList.remove('dragover');
-        if (e.dataTransfer?.files?.length) {
-          const list = await readFiles(e.dataTransfer.files);
-          imagesList.push(...list);
-          updateThumbs();
-          addLog(`已添加 ${imagesList.length} 张图片`);
-        }
-      });
-
-      // 点击选择
-      fileInput.addEventListener('change', async () => {
-        if (fileInput.files?.length) {
-          const list = await readFiles(fileInput.files);
-          imagesList.push(...list);
-          updateThumbs();
-          addLog(`已添加 ${imagesList.length} 张图片`);
-          fileInput.value = '';
-        }
-      });
-
-      // Clear all selected images
-      const clearBtn = document.getElementById('clearBtn');
-      clearBtn.addEventListener('click', () => {
-        imagesList = [];
+    fileInput.addEventListener('change', async () => {
+      if (fileInput.files?.length) {
+        const list = await readFiles(fileInput.files);
+        imagesList.push(...list);
         updateThumbs();
-        addLog('已清空所有图片。');
-      });
+        setLog(`已添加 ${imagesList.length} 张图片`);
+        fileInput.value = '';
+      }
+    });
 
-      const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
-      deleteSelectedBtn.addEventListener('click', () => {
-        const before = imagesList.length;
-        imagesList = imagesList.filter(it => !it.selected);
-        if (imagesList.length !== before) {
-          updateThumbs();
-          addLog(`已删除选中图片`);
-        }
-      });
+    sortMode.addEventListener('change', () => {
+      if (sortMode.value === 'name') {
+        imagesList.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+        updateThumbs();
+        setLog('已按名称排序');
+      }
+    });
 
-      // Preview modal close handlers
-      const previewModal = document.getElementById('previewModal');
-      const modalClose = document.getElementById('modalClose');
-      modalClose.addEventListener('click', hidePreview);
-      previewModal.addEventListener('click', (e) => {
-        if (e.target === previewModal) hidePreview();
-      });
-      const zoomIn = document.getElementById('zoomIn');
-      const zoomOut = document.getElementById('zoomOut');
-      const zoomLabel = document.getElementById('zoomLabel');
-      const previewImg = document.getElementById('previewImg');
-      let currentZoom = 1;
-      zoomIn.addEventListener('click', () => {
-        currentZoom = Math.min(3, currentZoom + 0.25);
-        previewImg.style.transform = `scale(${currentZoom})`;
-        zoomLabel.textContent = Math.round(currentZoom * 100) + '%';
-      });
-      zoomOut.addEventListener('click', () => {
-        currentZoom = Math.max(0.25, currentZoom - 0.25);
-        previewImg.style.transform = `scale(${currentZoom})`;
-        zoomLabel.textContent = Math.round(currentZoom * 100) + '%';
-      });
+    clearBtn.addEventListener('click', () => {
+      imagesList = [];
+      updateThumbs();
+      setLog('已清空所有图片');
+    });
 
-      // 导出 PDF
-      toPdfBtn.addEventListener('click', async () => {
-        if (imagesList.length === 0) return;
-        await ensurePdfLib();
+    deleteSelectedBtn.addEventListener('click', () => {
+      const before = imagesList.length;
+      imagesList = imagesList.filter(it => !it.selected);
+      if (imagesList.length !== before) {
+        updateThumbs();
+        setLog(`已删除选中图片`);
+      }
+    });
+
+    selectAllBtn.addEventListener('click', () => {
+      const allSelected = imagesList.length > 0 && imagesList.every(it => it.selected);
+      imagesList.forEach(it => it.selected = !allSelected);
+      updateThumbs();
+    });
+
+    // 预览模态框
+    modalClose.addEventListener('click', hidePreview);
+    previewModal.addEventListener('click', e => {
+      if (e.target === previewModal) hidePreview();
+    });
+    document.getElementById('zoomIn').addEventListener('click', () => {
+      currentZoom = Math.min(3, currentZoom + 0.25);
+      previewImg.style.transform = `scale(${currentZoom})`;
+      zoomLabel.textContent = Math.round(currentZoom * 100) + '%';
+    });
+    document.getElementById('zoomOut').addEventListener('click', () => {
+      currentZoom = Math.max(0.25, currentZoom - 0.25);
+      previewImg.style.transform = `scale(${currentZoom})`;
+      zoomLabel.textContent = Math.round(currentZoom * 100) + '%';
+    });
+
+    // 键盘快捷键
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') hidePreview();
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        selectAllBtn.click();
+      }
+    });
+
+    // ========== 导出 PDF ==========
+    toPdfBtn.addEventListener('click', async () => {
+      if (imagesList.length === 0) return;
+
+      toPdfBtn.disabled = true;
+      toPdfBtn.textContent = '⏳ 生成中...';
+      progressBar.classList.add('show');
+      progressFill.style.width = '0%';
+      setLog('正在生成 PDF...');
+
+      try {
         const { jsPDF } = window.jspdf;
-        const mode = document.getElementById('modeSelect').value;
+        const mode = modeSelect.value;
+
         if (mode === 'multi') {
-          // 多页合并成一个 PDF
-          const pdf = new jsPDF({ unit: 'px', format: 'a4' });
-          const pageW = pdf.internal.pageSize.getWidth ? pdf.internal.pageSize.getWidth() : pdf.internal.pageSize.get('width');
-          const pageH = pdf.internal.pageSize.getHeight ? pdf.internal.pageSize.getHeight() : pdf.internal.pageSize.get('height');
-          const margin = 20;
-          const availableW = pageW - 2 * margin;
-          const availableH = pageH - 2 * margin;
+          // 多页 PDF
+          const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+          const pageW = 595.28;
+          const pageH = 841.89;
+          const margin = 30;
+
           for (let i = 0; i < imagesList.length; i++) {
             const item = imagesList[i];
-            // SVG to PNG if needed
-            const src = item.dataUrl;
-            const dataUrl = item.type === 'image/svg+xml' ? await convertSvgToPng(src) : src;
+            const dataUrl = item.type === 'image/svg+xml' ? await svgToPng(item.dataUrl) : item.dataUrl;
             const img = await loadImage(dataUrl);
-            const scale = Math.min(availableW / img.width, availableH / img.height, 1);
-            const w = img.width * scale;
-            const h = img.height * scale;
+
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            const scale = Math.min((pageW - 2 * margin) / w, (pageH - 2 * margin) / h, 1);
+            w = w * scale;
+            h = h * scale;
             const x = (pageW - w) / 2;
-            const y = margin;
+            const y = (pageH - h) / 2;
             const format = dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-            if (i === 0) {
-              pdf.addImage(dataUrl, format, x, y, w, h);
-            } else {
-              pdf.addPage();
-              pdf.addImage(dataUrl, format, x, y, w, h);
-            }
-          }
-          pdf.save('images.pdf');
-          addLog('PDF 已生成并下载。');
-        } else {
-          // 每张图片生成单独的 PDF
-          for (let i = 0; i < imagesList.length; i++) {
-            const item = imagesList[i];
-            const src = item.dataUrl;
-            const dataUrl = item.type === 'image/svg+xml' ? await convertSvgToPng(src) : src;
-            const img = await loadImage(dataUrl);
-            const pdf = new jsPDF({ unit: 'px', format: 'a4' });
-            const pageW = pdf.internal.pageSize.getWidth ? pdf.internal.pageSize.getWidth() : pdf.internal.pageSize.get('width');
-            const pageH = pdf.internal.pageSize.getHeight ? pdf.internal.pageSize.getHeight() : pdf.internal.pageSize.get('height');
-            const margin = 20;
-            const availableW = pageW - 2 * margin;
-            const availableH = pageH - 2 * margin;
-            const scale = Math.min(availableW / img.width, availableH / img.height, 1);
-            const w = img.width * scale;
-            const h = img.height * scale;
-            const x = (pageW - w) / 2;
-            const y = margin;
-            const format = dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+
+            if (i > 0) pdf.addPage();
             pdf.addImage(dataUrl, format, x, y, w, h);
-            pdf.save(`image-${String(i+1).padStart(2, '0')}.pdf`);
+            progressFill.style.width = Math.round((i + 1) / imagesList.length * 100) + '%';
           }
-          addLog('单图 PDF 已生成并下载。');
+
+          pdf.save('images.pdf');
+          setLog('PDF 已生成并下载', 'success');
+        } else {
+          // 单页 PDF
+          for (let i = 0; i < imagesList.length; i++) {
+            const item = imagesList[i];
+            const dataUrl = item.type === 'image/svg+xml' ? await svgToPng(item.dataUrl) : item.dataUrl;
+            const img = await loadImage(dataUrl);
+
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+            const pageW = 595.28;
+            const pageH = 841.89;
+            const margin = 30;
+
+            let w = img.naturalWidth || img.width;
+            let h = img.naturalHeight || img.height;
+            const scale = Math.min((pageW - 2 * margin) / w, (pageH - 2 * margin) / h, 1);
+            w = w * scale;
+            h = h * scale;
+            const x = (pageW - w) / 2;
+            const y = (pageH - h) / 2;
+            const format = dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+
+            pdf.addImage(dataUrl, format, x, y, w, h);
+            pdf.save(`image-${String(i + 1).padStart(2, '0')}.pdf`);
+            progressFill.style.width = Math.round((i + 1) / imagesList.length * 100) + '%';
+
+            if (i < imagesList.length - 1) await new Promise(r => setTimeout(r, 100));
+          }
+          setLog(`已生成 ${imagesList.length} 个 PDF 文件`, 'success');
         }
-      });
-    })();
+      } catch (err) {
+        setLog('生成失败: ' + err.message, 'error');
+        console.error(err);
+      } finally {
+        toPdfBtn.disabled = false;
+        toPdfBtn.textContent = '📄 导出 PDF';
+        setTimeout(() => progressBar.classList.remove('show'), 1000);
+      }
+    });
+
+    // 初始化
+    updateThumbs();
+  })();
   </script>
 </body>
 </html>
